@@ -48,7 +48,12 @@ async def run_script(request: ScriptRequest):
     except Exception as e:
         tb = traceback.format_exc()
         raise HTTPException(status_code=400, detail=f"{str(e)}\nTraceback:\n{tb}")
+        
+        
 
+@app.get("/")
+async def root():
+    return {"status": "ok"}
 
 # ==== New Endpoint for Parquet File Upload ====
 
