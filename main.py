@@ -11,6 +11,10 @@ import io
 
 app = FastAPI()
 
+class ScriptRequest(BaseModel):
+    code: str
+    inputs: dict = {}
+
 def validate_schema_item(schema):
     required_fields = ["@context", "@type"]
     missing_fields = [field for field in required_fields if field not in schema]
@@ -73,10 +77,8 @@ async def run_script(request: ScriptRequest):
     local_vars = {}
 
     try:
-        # Execute the provided script
         exec(request.code, {}, local_vars)
 
-        # Extract all functions defined in local_vars
         user_functions = {
             name: obj for name, obj in local_vars.items()
             if callable(obj) and inspect.isfunction(obj)
@@ -87,10 +89,7 @@ async def run_script(request: ScriptRequest):
         elif len(user_functions) > 1:
             raise HTTPException(status_code=400, detail="Multiple functions found. Please specify which one to run.")
 
-        # Auto-select the only function
         function_name, fn = next(iter(user_functions.items()))
-
-        # Execute with inputs
         result = fn(**request.inputs)
 
         return {
