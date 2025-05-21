@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from bs4 import BeautifulSoup
+import requests
 import traceback
 import inspect
 import pandas as pd
@@ -8,11 +10,103 @@ import io
 
 app = FastAPI()
 
+REQUIRED_FIELDS = {
+    "Article": ["headline", "datePublished", "author"],
+    "Product": ["name", "offers"],
+    "Event": ["name", "startDate", "location"],
+    "Recipe": ["name", "recipeIngredient", "recipeInstructions"],
+    "FAQPage": ["mainEntity"]
+}
+
+def get_json_ld_schema(url: str):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    json_ld_tags = soup.find_all("script", {"type": "application/ld+json"})
+    schemas = []
+
+    for tag in json_ld_tags:
+        try:
+            data = json.loads(tag.string)
+            if isinstance(data, list):
+                schemas.extend(data)
+            elif isinstance(data, dict) and "@graph" in data:
+                schemas.extend(data["@graph"])
+            else:
+                schemas.append(data)
+        except (json.JSONDecodeError, TypeError):
+            continue
+    return schemas
+
+def validate_fields(schema):
+    errors = []
+
+    if "@type" not in schema:
+        errors.append("Missing @type.")
+        return False, errors
+
+    schema_type = schema["@type"]
+    required = REQUIRED_FIELDS.get(schema_type, [])
+
+    for field in required:
+        if field not in schema:
+            errors.append(f"Missing required field: {field}")
+
+    if schema_type == "Article" and "author" in schema:
+        author = schema["author"]
+        if isinstance(author, dict):
+            if "@type" not in author or "name" not in author:
+                errors.append("Author must have @type and name.")
+        elif isinstance(author, list):
+            for person in author:
+                if "@type" not in person or "name" not in person:
+                    errors.append("Each author must have @type and name.")
+        else:
+            errors.append("Author must be an object or list of objects.")
+
+    if schema_type == "Product" and "offers" in schema:
+        offers = schema["offers"]
+        if isinstance(offers, dict):
+            if "price" not in offers or "priceCurrency" not in offers:
+                errors.append("Offers must include price and priceCurrency.")
+        else:
+            errors.append("Offers should be an object.")
+
+    return len(errors) == 0, errors
+
 # ==== Existing Script Execution Support ====
 
 class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
+ 
+
+@app.get("/validate-schema")
+def validate_schema_endpoint(url: str = Query(..., description="URL to extract and validate schema.org data from")):
+    try:
+        schemas = get_json_ld_schema(url)
+        if not schemas:
+            raise HTTPException(status_code=404, detail="No JSON-LD schema found.")
+
+        results = []
+        for idx, schema in enumerate(schemas):
+            valid, messages = validate_fields(schema)
+            results.append({
+                "index": idx,
+                "type": schema.get("@type", "Unknown"),
+                "valid": valid,
+                "errors" if not valid else "notes": messages,
+                "snippet": schema
+            })
+
+        return JSONResponse({
+            "success": True,
+            "url": url,
+            "total_blocks": len(schemas),
+            "validation_results": results
+        })
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/run-script")
 async def run_script(request: ScriptRequest):
