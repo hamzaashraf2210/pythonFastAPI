@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
+import json
 import requests
 import traceback
 import inspect
