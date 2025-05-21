@@ -103,6 +103,10 @@ async def validate_schema_endpoint(url: str = Query(..., description="URL of the
     results = []
     for schema in schemas:
         errors = validate_schema(schema)
+        if not errors:
+            # Skip schemas with no errors
+            continue
+
         corrected = correct_schema(schema)
 
         results.append({
@@ -110,6 +114,9 @@ async def validate_schema_endpoint(url: str = Query(..., description="URL of the
             "errors": errors,
             "corrected_schema": corrected,
         })
+
+    if not results:
+        return JSONResponse(content={"message": "No schema validation errors found."})
 
     return JSONResponse(content={"schemas_validations": results})
 
