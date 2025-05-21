@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
+from jsonschema import Draft7Validator, RefResolver, ValidationError
 import json
 import requests
 import traceback
@@ -11,9 +12,14 @@ import io
 
 app = FastAPI()
 
+class SchemaRequest(BaseModel):
+    schema: dict 
+
 class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
+    
+
 
 def validate_schema_item(schema):
     required_fields = ["@context", "@type"]
@@ -26,51 +32,86 @@ def validate_schema_item(schema):
     }
 
 
-def extract_json_ld(html):
-    soup = BeautifulSoup(html, "html.parser")
-    script_tags = soup.find_all("script", type="application/ld+json")
+def fetch_schema_from_url(url: str):
+    try:
+        resp = requests.get(url)
+        resp.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
 
-    extracted_schemas = []
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    scripts = soup.find_all('script', type='application/ld+json')
+    schemas = []
 
-    for tag in script_tags:
+    for script in scripts:
         try:
-            data = json.loads(tag.string)
-            if isinstance(data, dict) and "@graph" in data:
-                extracted_schemas.extend(data["@graph"])
+            data = json.loads(script.string)
+            # Support for @graph
+            if isinstance(data, dict) and '@graph' in data:
+                schemas.extend(data['@graph'])
+            elif isinstance(data, list):
+                schemas.extend(data)
             else:
-                extracted_schemas.append(data)
-        except Exception as e:
-            continue  # skip broken/invalid JSON
+                schemas.append(data)
+        except Exception:
+            # Skip if JSON parsing fails
+            continue
 
-    return extracted_schemas
+    if not schemas:
+        raise HTTPException(status_code=404, detail="No JSON-LD schema found on the page.")
+
+    return schemas
+
+def validate_schema(schema):
+    validator = Draft7Validator(schema)
+    errors = sorted(validator.iter_errors(schema), key=lambda e: e.path)
+
+    error_details = []
+    for err in errors:
+        # Attempt to find line number roughly by JSON path (best effort)
+        line_number = None
+        if hasattr(err, 'context') and err.context:
+            line_number = err.context[0].schema_path if err.context else None
+
+        error_details.append({
+            "message": err.message,
+            "path": list(err.path),
+            "schema_path": list(err.schema_path),
+            "line_number": line_number,
+        })
+
+    return error_details
+
+def correct_schema(schema):
+    # VERY basic correction example: 
+    # You can add more complex AI or heuristic corrections here
+    corrected = dict(schema)  # shallow copy
+
+    # Example correction: if 'minimum' is negative on age, set to 0
+    props = corrected.get('properties', {})
+    for key, val in props.items():
+        if isinstance(val, dict) and 'minimum' in val and val['minimum'] < 0:
+            val['minimum'] = 0
+
+    return corrected
 
 
 @app.get("/validate-schema")
-def validate_schema(url: str = Query(..., description="URL of the website to validate schema from")):
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code != 200:
-            raise HTTPException(status_code=400, detail="Unable to fetch the page.")
+async def validate_schema_endpoint(url: str = Query(..., description="URL of the webpage to fetch and validate schema from")):
+    schemas = fetch_schema_from_url(url)
 
-        html = response.text
-        schemas = extract_json_ld(html)
+    results = []
+    for schema in schemas:
+        errors = validate_schema(schema)
+        corrected = correct_schema(schema)
 
-        if not schemas:
-            return JSONResponse(status_code=404, content={"message": "No JSON-LD schema found on the page."})
+        results.append({
+            "original_schema": schema,
+            "errors": errors,
+            "corrected_schema": corrected,
+        })
 
-        results = {}
-
-        for idx, schema in enumerate(schemas):
-            results[f"schema_{idx}"] = validate_schema_item(schema)
-
-        return {
-            "url": url,
-            "total_schemas_found": len(schemas),
-            "validation_results": results
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return JSONResponse(content={"schemas_validations": results})
 
 @app.post("/run-script")
 async def run_script(request: ScriptRequest):
