@@ -51,9 +51,9 @@ async def run_script(request: ScriptRequest):
         
         
 
-@app.get("/")
-async def root():
-    return {"status": "ok"}
+@app.get("/", include_in_schema=False)
+async def health_check():
+    return JSONResponse(content={"status": "ok"})
 
 # ==== New Endpoint for Parquet File Upload ====
 
