@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
 from jsonschema import Draft7Validator, RefResolver, ValidationError
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urljoin
 from datetime import datetime
 import json
 import requests
@@ -40,8 +40,192 @@ class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
  
+def validate_url(url, base_url=None):
+    if not url:
+        return False
+    if not isinstance(url, str):
+        return False
+    if base_url:
+        # If base_url is provided, resolve relative URLs
+        url = urljoin(base_url, url)
+    result = urlparse(url)
+    return all([result.scheme, result.netloc])    
+
+def validate_date(date):
+    date_regex = r"^\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}:\d{2}(\.\d{1,3})?)?$"
+    return bool(re.match(date_regex, date))
+    
+def validate_common_schema(schema_data, url, schema_type):
+    # Validate URL if missing or invalid
+    if not validate_url(schema_data.get('url', ''), url):
+        schema_data['url'] = url  # Default to page URL if invalid or missing
+
+    # Article type schema validation
+    if schema_type == 'Article':
+        if 'headline' not in schema_data:
+            schema_data['headline'] = "Untitled Article"
+        if 'author' not in schema_data:
+            schema_data['author'] = {"@type": "Person", "name": "Anonymous"}
+        if 'datePublished' not in schema_data or not validate_date(schema_data['datePublished']):
+            schema_data['datePublished'] = "2023-01-01"
+
+    # WebPage type schema validation
+    elif schema_type == 'WebPage':
+        if 'publisher' not in schema_data:
+            schema_data['publisher'] = {"@type": "Organization", "name": "Default Publisher"}
+        if 'mainEntityOfPage' not in schema_data:
+            schema_data['mainEntityOfPage'] = {"@type": "WebPage", "url": url}
+
+    # Product type schema validation
+    elif schema_type == 'Product':
+        if 'name' not in schema_data:
+            schema_data['name'] = "Default Product Name"
+        if 'offers' not in schema_data:
+            schema_data['offers'] = {"@type": "Offer", "priceCurrency": "USD", "price": "0.00"}
+        if 'sku' not in schema_data:
+            schema_data['sku'] = "00000000"
+
+    # Person type schema validation
+    elif schema_type == 'Person':
+        if 'name' not in schema_data:
+            schema_data['name'] = "Unknown Person"
+
+    # Event type schema validation
+    elif schema_type == 'Event':
+        if 'startDate' not in schema_data or not validate_date(schema_data['startDate']):
+            schema_data['startDate'] = "2023-01-01T00:00:00"
+        if 'location' not in schema_data:
+            schema_data['location'] = {"@type": "Place", "name": "Event Location"}
+        if 'name' not in schema_data:
+            schema_data['name'] = "Untitled Event"
+
+    # Review type schema validation
+    elif schema_type == 'Review':
+        if 'reviewBody' not in schema_data:
+            schema_data['reviewBody'] = "No review content."
+        if 'author' not in schema_data:
+            schema_data['author'] = {"@type": "Person", "name": "Anonymous"}
+
+    # Recipe type schema validation
+    elif schema_type == 'Recipe':
+        if 'name' not in schema_data:
+            schema_data['name'] = "Untitled Recipe"
+        if 'ingredients' not in schema_data:
+            schema_data['ingredients'] = []
+        if 'recipeInstructions' not in schema_data:
+            schema_data['recipeInstructions'] = "Step 1: Prepare the ingredients."
+
+    # Service type schema validation
+    elif schema_type == 'Service':
+        if 'serviceType' not in schema_data:
+            schema_data['serviceType'] = "General Service"
+        if 'provider' not in schema_data:
+            schema_data['provider'] = {"@type": "Organization", "name": "Service Provider"}
+        if 'areaServed' not in schema_data:
+            schema_data['areaServed'] = {"@type": "Place", "name": "Worldwide"}
+    
+    # Place type schema validation
+    elif schema_type == 'Place':
+        if 'name' not in schema_data:
+            schema_data['name'] = "Unnamed Place"
+        if 'address' not in schema_data:
+            schema_data['address'] = {"@type": "PostalAddress", "streetAddress": "Unknown Street", "addressLocality": "Unknown City"}
+        if 'geo' not in schema_data:
+            schema_data['geo'] = {"@type": "GeoCoordinates", "latitude": "0.0", "longitude": "0.0"}
+
+    # Organization type schema validation
+    elif schema_type == 'Organization':
+        if 'name' not in schema_data:
+            schema_data['name'] = "Unnamed Organization"
+        if 'address' not in schema_data:
+            schema_data['address'] = {"@type": "PostalAddress", "streetAddress": "Unknown Street", "addressLocality": "Unknown City"}
+        if 'url' not in schema_data:
+            schema_data['url'] = url
+
+    return schema_data
     
 
+def validate_nested_schemas(schema_data, url, schema_type):
+    if schema_type == 'Person' and 'address' in schema_data:
+        address = schema_data['address']
+        if 'streetAddress' not in address:
+            address['streetAddress'] = "Unknown Street"
+        if 'addressLocality' not in address:
+            address['addressLocality'] = "Unknown City"
+        if 'addressRegion' not in address:
+            address['addressRegion'] = "Unknown Region"
+        if 'postalCode' not in address:
+            address['postalCode'] = "00000"
+    elif schema_type == 'Product' and 'offers' in schema_data:
+        offer = schema_data['offers']
+        if 'priceCurrency' not in offer:
+            offer['priceCurrency'] = "USD"
+        if 'price' not in offer:
+            offer['price'] = "0.00"
+    elif schema_type == 'Service' and 'provider' in schema_data:
+        provider = schema_data['provider']
+        if 'name' not in provider:
+            provider['name'] = "Unknown Provider"
+    elif schema_type == 'Place' and 'address' in schema_data:
+        address = schema_data['address']
+        if 'streetAddress' not in address:
+            address['streetAddress'] = "Unknown Street"
+        if 'addressLocality' not in address:
+            address['addressLocality'] = "Unknown City"
+    elif schema_type == 'Organization' and 'contactPoint' in schema_data:
+        contact_point = schema_data['contactPoint']
+        if 'telephone' not in contact_point:
+            contact_point['telephone'] = "+1-800-000-0000"
+    return schema_data
+    
+def fetch_and_update_schema(url):
+    try:
+        # Fetch the webpage content
+        response = requests.get(url)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        raise HTTPException(status_code=400, detail=f"Error fetching URL: {e}")
+
+    # Parse the webpage content
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Look for JSON-LD schema.org data
+    schema_tags = soup.find_all('script', {'type': 'application/ld+json'})
+
+    if not schema_tags:
+        raise HTTPException(status_code=404, detail="No schema.org JSON-LD schema found on this page.")
+
+    updated_schemas = []
+    for tag in schema_tags:
+        try:
+            schema_data = json.loads(tag.string)
+            if isinstance(schema_data, dict):
+                schema_type = schema_data.get('@type', '')
+                schema_data = validate_common_schema(schema_data, url, schema_type)
+                schema_data = validate_nested_schemas(schema_data, url, schema_type)
+                updated_schemas.append(schema_data)
+            elif isinstance(schema_data, list):
+                for item in schema_data:
+                    schema_type = item.get('@type', '')
+                    item = validate_common_schema(item, url, schema_type)
+                    item = validate_nested_schemas(item, url, schema_type)
+                    updated_schemas.append(item)
+        except json.JSONDecodeError as e:
+            continue
+
+    # Wrap in @graph if needed
+    if updated_schemas:
+        if len(updated_schemas) > 1:
+            final_schema = {
+                "@context": "https://schema.org",
+                "@graph": updated_schemas
+            }
+        else:
+            final_schema = updated_schemas[0]
+
+        return final_schema
+    else:
+        raise HTTPException(status_code=404, detail="No valid schema found to update.")
 
 def is_valid_url(url):
     try:
@@ -243,6 +427,15 @@ def correct_schema(schema):
         corrected = normalize(clean_nulls(ensure_fields(corrected)))
 
     return corrected
+ 
+
+@app.get("/true-validate")
+async def true_validate(url: str = Query(..., title="URL to validate")):
+    try:
+        validated_schema = fetch_and_update_schema(url)
+        return JSONResponse(content=validated_schema)
+    except HTTPException as e:
+        raise e 
 
 
 @app.get("/validate-schema")
