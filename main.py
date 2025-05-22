@@ -6,6 +6,7 @@ from jsonschema import Draft7Validator, RefResolver, ValidationError
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
 import json
+import os
 import requests
 import traceback
 import inspect
