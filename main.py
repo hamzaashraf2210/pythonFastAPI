@@ -34,6 +34,8 @@ EXPECTED_FIELDS = {
     "Recipe": ["name", "recipeIngredient", "recipeInstructions"]
 }
 
+SCHEMA_OUTPUT_DIR = "validated_schemas"
+
 class SchemaRequest(BaseModel):
     schema: dict 
 
