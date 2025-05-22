@@ -3,14 +3,35 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
 from jsonschema import Draft7Validator, RefResolver, ValidationError
+from urllib.parse import urlparse
+from datetime import datetime
 import json
 import requests
 import traceback
 import inspect
 import pandas as pd
 import io
+import re
 
 app = FastAPI()
+
+EXPECTED_FIELDS = {
+    "Article": ["headline", "author", "datePublished", "mainEntityOfPage"],
+    "NewsArticle": ["headline", "author", "datePublished", "mainEntityOfPage"],
+    "BlogPosting": ["headline", "author", "datePublished", "articleBody"],
+    "WebPage": ["name", "url"],
+    "Organization": ["name", "url", "logo"],
+    "Person": ["name"],
+    "BreadcrumbList": ["itemListElement"],
+    "Product": ["name", "offers", "description", "image"],
+    "Offer": ["price", "priceCurrency", "availability", "url"],
+    "Review": ["reviewRating", "author", "reviewBody"],
+    "Event": ["name", "startDate", "location"],
+    "LocalBusiness": ["name", "address", "telephone"],
+    "FAQPage": ["mainEntity"],
+    "HowTo": ["name", "step"],
+    "Recipe": ["name", "recipeIngredient", "recipeInstructions"]
+}
 
 class SchemaRequest(BaseModel):
     schema: dict 
@@ -18,8 +39,23 @@ class SchemaRequest(BaseModel):
 class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
+ 
     
 
+
+def is_valid_url(url):
+    try:
+        result = urlparse(url)
+        return result.scheme in ("http", "https")
+    except Exception:
+        return False
+
+def is_iso_date(value):
+    try:
+        datetime.fromisoformat(value)
+        return True
+    except ValueError:
+        return False
 
 def validate_schema_item(schema):
     required_fields = ["@context", "@type"]
@@ -31,6 +67,67 @@ def validate_schema_item(schema):
         "type": schema.get("@type", "Unknown")
     }
 
+
+def validate_schema_data(schema, line_number=None):
+    errors = []
+
+    if isinstance(schema, list):
+        for item in schema:
+            errors.extend(validate_schema_data(item))
+        return errors
+
+    schema_type = schema.get("@type")
+    if not schema_type:
+        errors.append({
+            "message": "Missing @type in schema.",
+            "line": line_number or "unknown",
+        })
+        return errors
+
+    schema_type = schema_type[0] if isinstance(schema_type, list) else schema_type
+    expected_fields = EXPECTED_FIELDS.get(schema_type)
+
+    if expected_fields:
+        for field in expected_fields:
+            if field not in schema:
+                errors.append({
+                    "type": schema_type,
+                    "missing_field": field,
+                    "message": f"Missing expected field '{field}' for type '{schema_type}'",
+                    "line": line_number or "unknown"
+                })
+
+    if schema_type == "Article" and "datePublished" in schema:
+        if not is_iso_date(schema["datePublished"]):
+            errors.append({
+                "type": schema_type,
+                "field": "datePublished",
+                "message": "Field 'datePublished' should be an ISO 8601 date (e.g., 2023-01-01T00:00:00)",
+                "line": line_number or "unknown"
+            })
+
+    if schema_type == "Product" and "offers" in schema:
+        offers = schema["offers"]
+        if isinstance(offers, dict):
+            offer_type = offers.get("@type", "")
+            if offer_type != "Offer":
+                errors.append({
+                    "type": schema_type,
+                    "field": "offers",
+                    "message": "Field 'offers' should contain an object with '@type': 'Offer'",
+                    "line": line_number or "unknown"
+                })
+
+    if schema_type == "Organization" and "logo" in schema:
+        if not is_valid_url(schema["logo"]):
+            errors.append({
+                "type": schema_type,
+                "field": "logo",
+                "message": "Field 'logo' should be a valid URL",
+                "line": line_number or "unknown"
+            })
+
+    return errors
 
 def fetch_schema_from_url(url: str):
     try:
@@ -149,28 +246,47 @@ def correct_schema(schema):
 
 
 @app.get("/validate-schema")
-async def validate_schema_endpoint(url: str = Query(..., description="URL of the webpage to fetch and validate schema from")):
-    schemas = fetch_schema_from_url(url)
+def validate_schema(url: str = Query(..., description="URL of the webpage to validate")):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        html = response.text
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
 
-    results = []
-    for schema in schemas:
-        errors = validate_schema(schema)
-        if not errors:
-            # Skip schemas with no errors
-            continue
+    soup = BeautifulSoup(html, "html.parser")
+    scripts = soup.find_all("script", {"type": "application/ld+json"})
+    validation_results = []
 
-        corrected = correct_schema(schema)
+    for index, tag in enumerate(scripts):
+        try:
+            content = tag.string
+            data = json.loads(content)
 
-        results.append({
-            "original_schema": schema,
-            "errors": errors,
-            "corrected_schema": corrected,
-        })
+            # Support @graph
+            schemas = data.get("@graph") if isinstance(data, dict) and "@graph" in data else [data]
 
-    if not results:
-        return JSONResponse(content={"message": "No schema validation errors found."})
+            if not isinstance(schemas, list):
+                schemas = [schemas]
 
-    return JSONResponse(content={"schemas_validations": results})
+            errors = validate_schema_data(schemas, line_number=index + 1)
+
+            if errors:  # Only include results with errors
+                validation_results.append({
+                    "line": index + 1,
+                    "errors": errors
+                })
+
+        except Exception as e:
+            validation_results.append({
+                "line": index + 1,
+                "errors": [{"message": f"JSON parse error: {str(e)}"}]
+            })
+
+    return JSONResponse(content={
+        "url": url,
+        "results": validation_results
+    })
 
 @app.post("/run-script")
 async def run_script(request: ScriptRequest):
