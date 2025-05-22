@@ -34,7 +34,9 @@ EXPECTED_FIELDS = {
     "Recipe": ["name", "recipeIngredient", "recipeInstructions"]
 }
 
-SCHEMA_OUTPUT_DIR = "validated_schemas"
+SCHEMA_OUTPUT_DIR = os.path.join(os.getcwd(), "validated_schemas")
+
+os.makedirs(SCHEMA_OUTPUT_DIR, exist_ok=True)
 
 class SchemaRequest(BaseModel):
     schema: dict 
