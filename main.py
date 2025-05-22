@@ -433,9 +433,21 @@ def correct_schema(schema):
 async def true_validate(url: str = Query(..., title="URL to validate")):
     try:
         validated_schema = fetch_and_update_schema(url)
-        return JSONResponse(content=validated_schema)
+        
+        # Create a filename based on the URL and current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"schema_{timestamp}.txt"
+        file_path = os.path.join(SCHEMA_OUTPUT_DIR, filename)
+        
+        # Write the validated schema to a txt file
+        with open(file_path, 'w') as file:
+            json.dump(validated_schema, file, indent=4)
+        
+        # Return the filename or a download link
+        return FileResponse(file_path, media_type="text/plain", filename=filename)
+        
     except HTTPException as e:
-        raise e 
+        raise e
 
 
 @app.get("/validate-schema")
