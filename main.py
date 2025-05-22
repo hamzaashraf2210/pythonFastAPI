@@ -83,15 +83,67 @@ def validate_schema(schema):
     return error_details
 
 def correct_schema(schema):
-    # VERY basic correction example: 
-    # You can add more complex AI or heuristic corrections here
-    corrected = dict(schema)  # shallow copy
+    """
+    Tries to apply common-sense corrections to the given JSON-LD schema.
+    Returns the corrected schema.
+    """
+    import copy
 
-    # Example correction: if 'minimum' is negative on age, set to 0
-    props = corrected.get('properties', {})
-    for key, val in props.items():
-        if isinstance(val, dict) and 'minimum' in val and val['minimum'] < 0:
-            val['minimum'] = 0
+    corrected = copy.deepcopy(schema)
+
+    # Define required fields for common types
+    required_fields = {
+        "Organization": ["name"],
+        "WebSite": ["name", "url"],
+        "WebPage": ["name"],
+        "Article": ["headline", "author", "datePublished"],
+        "Person": ["name"],
+        "BreadcrumbList": ["itemListElement"],
+        "Product": ["name", "offers"],
+        "Review": ["author", "reviewBody"]
+    }
+
+    def ensure_fields(obj):
+        """
+        Ensure required fields are present based on @type
+        """
+        obj_type = obj.get("@type")
+        if isinstance(obj_type, list):
+            obj_type = obj_type[0]
+        if not obj_type:
+            return obj
+
+        required = required_fields.get(obj_type, [])
+        for field in required:
+            if field not in obj:
+                obj[field] = f"[MISSING_{field}]"
+        return obj
+
+    def clean_nulls(obj):
+        """
+        Remove keys with null or empty values
+        """
+        return {k: v for k, v in obj.items() if v not in [None, ""]}
+
+    def normalize(obj):
+        """
+        Normalize field formats or apply basic transformations
+        """
+        if "@type" in obj and isinstance(obj["@type"], str):
+            obj["@type"] = obj["@type"].strip()
+
+        if "url" in obj and not isinstance(obj["url"], str):
+            obj["url"] = str(obj["url"])
+
+        return obj
+
+    if "@graph" in corrected:
+        corrected["@graph"] = [
+            normalize(clean_nulls(ensure_fields(item)))
+            for item in corrected["@graph"]
+        ]
+    else:
+        corrected = normalize(clean_nulls(ensure_fields(corrected)))
 
     return corrected
 
