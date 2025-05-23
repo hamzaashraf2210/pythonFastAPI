@@ -472,6 +472,11 @@ async def true_validate(url: str = Query(..., title="URL to validate")):
 
 @app.get("/validate-schema")
 def validate_schema(url: str = Query(..., description="URL of the webpage to validate")):
+    headers = {
+    "Cache-Control": "no-cache",
+    "User-Agent": "SchemaValidator/1.0"
+    }
+
     try:
         response = requests.get(url, headers=headers)
         print(f"✅ Requested URL: {url}")
