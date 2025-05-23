@@ -479,7 +479,7 @@ def validate_schema(url: str = Query(..., description="URL of the webpage to val
         print(f"📄 HTML (first 500 chars):\n{response.text[:500]}")
         response.raise_for_status()
         html = response.text
-except Exception as e:
+    except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
 
     soup = BeautifulSoup(html, "html.parser")
