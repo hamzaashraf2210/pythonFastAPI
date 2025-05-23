@@ -56,25 +56,20 @@ def validate_url(url, base_url=None):
     result = urlparse(url)
     return all([result.scheme, result.netloc])    
 
+def is_valid_url(url):
+    if not isinstance(url, str):
+        return False
+    parsed = urlparse(url)
+    return parsed.scheme in ["http", "https"] and bool(parsed.netloc)
+
 def validate_logo_field(value):
-    print(f"Validating logo field: {value}")
     if isinstance(value, str):
-        valid = is_valid_url(value)
-        print(f"Logo is string. URL valid? {valid}")
-        return valid
+        return is_valid_url(value)
     if isinstance(value, dict):
         if value.get("@type") == "ImageObject":
-            url = value.get("url")
-            valid = is_valid_url(url)
-            print(f"Logo is ImageObject. URL: {url}, valid? {valid}")
-            return valid
-        else:
-            print(f"Logo dict missing or wrong @type: {value.get('@type')}")
+            return is_valid_url(value.get("url"))
     if isinstance(value, list):
-        results = [validate_logo_field(item) for item in value]
-        print(f"Logo is list. Individual results: {results}")
-        return all(results)
-    print(f"Logo field invalid type or format: {type(value)}")
+        return all(validate_logo_field(v) for v in value)
     return False
 
 def validate_date(date):
