@@ -57,12 +57,24 @@ def validate_url(url, base_url=None):
     return all([result.scheme, result.netloc])    
 
 def validate_logo_field(value):
-    if isinstance(value, str) and is_valid_url(value):
-        return True
+    print(f"Validating logo field: {value}")
+    if isinstance(value, str):
+        valid = is_valid_url(value)
+        print(f"Logo is string. URL valid? {valid}")
+        return valid
     if isinstance(value, dict):
-        url = value.get("url")
-        if url and is_valid_url(url):
-            return True
+        if value.get("@type") == "ImageObject":
+            url = value.get("url")
+            valid = is_valid_url(url)
+            print(f"Logo is ImageObject. URL: {url}, valid? {valid}")
+            return valid
+        else:
+            print(f"Logo dict missing or wrong @type: {value.get('@type')}")
+    if isinstance(value, list):
+        results = [validate_logo_field(item) for item in value]
+        print(f"Logo is list. Individual results: {results}")
+        return all(results)
+    print(f"Logo field invalid type or format: {type(value)}")
     return False
 
 def validate_date(date):
@@ -244,16 +256,8 @@ def fetch_and_update_schema(url):
 def is_valid_url(url):
     if not isinstance(url, str) or not url.strip():
         return False
-    # Accept typical URLs validated by validators.url
-    if validators.url(url):
-        return True
-    # Accept protocol-relative URLs (starting with //)
-    if url.startswith("//"):
-        return True
-    # Accept data URLs (e.g., base64-encoded images)
-    if url.startswith("data:"):
-        return True
-    return False
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 def is_iso_date(value):
     try:
