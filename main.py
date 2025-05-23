@@ -243,8 +243,17 @@ def fetch_and_update_schema(url):
         raise HTTPException(status_code=404, detail="No valid schema found to update.")
 
 def is_valid_url(url):
-    if isinstance(url, str):
-        return validators.url(url)
+    if not isinstance(url, str) or not url.strip():
+        return False
+    # Accept typical URLs validated by validators.url
+    if validators.url(url):
+        return True
+    # Accept protocol-relative URLs (starting with //)
+    if url.startswith("//"):
+        return True
+    # Accept data URLs (e.g., base64-encoded images)
+    if url.startswith("data:"):
+        return True
     return False
 
 def is_iso_date(value):
