@@ -323,13 +323,13 @@ def validate_schema_data(schema, line_number=None):
                 })
 
     if schema_type == "Organization" and "logo" in schema:
-        if not is_valid_url(schema["logo"]):
-            errors.append({
-                "type": schema_type,
-                "field": "logo",
-                "message": "Field 'logo' should be a valid URL",
-                "line": line_number or "unknown"
-            })
+    if not validate_logo_field(schema["logo"]):
+        errors.append({
+            "type": schema_type,
+            "field": "logo",
+            "message": "Field 'logo' should be a valid URL or ImageObject with a valid url",
+            "line": line_number or "unknown"
+        })
 
     return errors
 
