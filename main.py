@@ -272,7 +272,7 @@ def validate_schema_item(schema):
     }
 
 def generate_corrected_example(schema_type, field):
-    # Provide simple corrected example snippets per field & type
+    # Provide simple corrected example snippets per (type, field)
     examples = {
         ("Organization", "logo"): "https://example.com/logo.png",
         ("Article", "datePublished"): "2023-01-01T00:00:00Z",
@@ -303,54 +303,71 @@ def validate_schema_data(schema, line_number=None):
         return errors
 
     schema_type = schema_type[0] if isinstance(schema_type, list) else schema_type
-    expected_fields = EXPECTED_FIELDS.get(schema_type)
+    expected_fields = EXPECTED_FIELDS.get(schema_type, [])
 
-    if expected_fields:
-        for field in expected_fields:
-            if field not in schema:
-                errors.append({
-                    "type": schema_type,
-                    "missing_field": field,
-                    "message": f"Missing expected field '{field}' for type '{schema_type}'",
-                    "line": line_number or "unknown",
-                    "schema_snippet": schema,
-                    "corrected_example": {field: generate_corrected_example(schema_type, field)}
-                })
+    # Check for missing expected fields
+    for field in expected_fields:
+        if field not in schema:
+            # Build corrected example: add the missing field with a valid example value
+            corrected_example = schema.copy() if isinstance(schema, dict) else {}
+            corrected_example[field] = generate_corrected_example(schema_type, field)
 
+            errors.append({
+                "type": schema_type,
+                "missing_field": field,
+                "message": f"Missing expected field '{field}' for type '{schema_type}'",
+                "line": line_number or "unknown",
+                "schema_snippet": schema,
+                "corrected_example": corrected_example
+            })
+
+    # Validate Article.datePublished format
     if schema_type == "Article" and "datePublished" in schema:
-        if not is_iso_date(schema["datePublished"]):
+        date_val = schema["datePublished"]
+        if not is_iso_date(date_val):
+            corrected_example = schema.copy()
+            corrected_example["datePublished"] = generate_corrected_example(schema_type, "datePublished")
             errors.append({
                 "type": schema_type,
                 "field": "datePublished",
                 "message": "Field 'datePublished' should be an ISO 8601 date (e.g., 2023-01-01T00:00:00Z)",
                 "line": line_number or "unknown",
-                "schema_snippet": {"datePublished": schema.get("datePublished")},
-                "corrected_example": {"datePublished": generate_corrected_example(schema_type, "datePublished")}
+                "schema_snippet": {"datePublished": date_val},
+                "corrected_example": {"datePublished": corrected_example["datePublished"]}
             })
 
+    # Validate Product.offers @type
     if schema_type == "Product" and "offers" in schema:
         offers = schema["offers"]
         if isinstance(offers, dict):
             offer_type = offers.get("@type", "")
             if offer_type != "Offer":
+                corrected_offer = offers.copy()
+                corrected_offer["@type"] = "Offer"
+                corrected_example = schema.copy()
+                corrected_example["offers"] = corrected_offer
+
                 errors.append({
                     "type": schema_type,
                     "field": "offers",
                     "message": "Field 'offers' should contain an object with '@type': 'Offer'",
                     "line": line_number or "unknown",
                     "schema_snippet": {"offers": offers},
-                    "corrected_example": {"offers": generate_corrected_example(schema_type, "offers")}
+                    "corrected_example": {"offers": corrected_offer}
                 })
 
+    # Validate Organization.logo
     if schema_type == "Organization" and "logo" in schema:
         logo = schema["logo"]
         if not validate_logo_field(logo):
-            corrected_logo = None
             if isinstance(logo, dict) and logo.get("@type") == "ImageObject":
                 corrected_logo = logo.copy()
                 corrected_logo["url"] = generate_corrected_example(schema_type, "logo")
             else:
                 corrected_logo = generate_corrected_example(schema_type, "logo")
+
+            corrected_example = schema.copy()
+            corrected_example["logo"] = corrected_logo
 
             errors.append({
                 "type": schema_type,
