@@ -3,6 +3,7 @@ uvicorn
 python-multipart
 jsonschema
 lxml
+validators
 requests
 beautifulsoup4
 pandas
