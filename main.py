@@ -473,14 +473,14 @@ async def true_validate(url: str = Query(..., title="URL to validate")):
 @app.get("/validate-schema")
 def validate_schema(url: str = Query(..., description="URL of the webpage to validate")):
     try:
-    response = requests.get(url, headers=headers)
-    print(f"✅ Requested URL: {url}")
-    print(f"📥 Final fetched URL: {response.url}")
-    print(f"📄 HTML (first 500 chars):\n{response.text[:500]}")
-    response.raise_for_status()
-    html = response.text
+        response = requests.get(url, headers=headers)
+        print(f"✅ Requested URL: {url}")
+        print(f"📥 Final fetched URL: {response.url}")
+        print(f"📄 HTML (first 500 chars):\n{response.text[:500]}")
+        response.raise_for_status()
+        html = response.text
 except Exception as e:
-    raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {str(e)}")
 
     soup = BeautifulSoup(html, "html.parser")
     scripts = soup.find_all("script", {"type": "application/ld+json"})
