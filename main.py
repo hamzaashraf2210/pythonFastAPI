@@ -1,4 +1,5 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Depends, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from bs4 import BeautifulSoup
@@ -15,6 +16,9 @@ import io
 import re
 
 app = FastAPI()
+
+security = HTTPBearer()
+API_TOKEN = "pythonFastAPI"
 
 EXPECTED_FIELDS = {
     "Article": ["headline", "author", "datePublished", "mainEntityOfPage"],
@@ -45,6 +49,13 @@ class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
  
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if credentials.scheme != "Bearer" or credentials.credentials != API_TOKEN:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing token",
+        )
+
 def validate_url(url, base_url=None):
     if not url:
         return False
@@ -498,6 +509,7 @@ def correct_schema(schema):
 
 @app.get("/true-validate")
 async def true_validate(url: str = Query(..., title="URL to validate")):
+    credentials: HTTPAuthorizationCredentials = Depends(verify_token)
     try:
         validated_schema = fetch_and_update_schema(url)
         
@@ -519,6 +531,7 @@ async def true_validate(url: str = Query(..., title="URL to validate")):
 
 @app.get("/validate-schema")
 def validate_schema(url: str = Query(..., description="URL of the webpage to validate")):
+    credentials: HTTPAuthorizationCredentials = Depends(verify_token)
     headers = {
     "Cache-Control": "no-cache",
     "User-Agent": "SchemaValidator/1.0"
