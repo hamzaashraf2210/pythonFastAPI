@@ -56,6 +56,16 @@ def validate_url(url, base_url=None):
     result = urlparse(url)
     return all([result.scheme, result.netloc])    
 
+def validate_logo_field(value):
+    # Case 1: logo is a direct URL
+    if isinstance(value, str) and is_valid_url(value):
+        return True
+    # Case 2: logo is an ImageObject with a url field
+    if isinstance(value, dict):
+        if value.get("@type") == "ImageObject":
+            return is_valid_url(value.get("url", ""))
+    return False
+
 def validate_date(date):
     date_regex = r"^\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}:\d{2}(\.\d{1,3})?)?$"
     return bool(re.match(date_regex, date))
