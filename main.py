@@ -479,9 +479,6 @@ def validate_schema(url: str = Query(..., description="URL of the webpage to val
 
     try:
         response = requests.get(url, headers=headers)
-        print(f"✅ Requested URL: {url}")
-        print(f"📥 Final fetched URL: {response.url}")
-        print(f"📄 HTML (first 500 chars):\n{response.text[:500]}")
         response.raise_for_status()
         html = response.text
     except Exception as e:
