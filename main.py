@@ -18,6 +18,7 @@ import re
 app = FastAPI()
 
 security = HTTPBearer()
+
 API_TOKEN = "pythonFastAPI"
 
 EXPECTED_FIELDS = {
@@ -530,11 +531,13 @@ async def true_validate(url: str = Query(..., title="URL to validate")):
 
 
 @app.get("/validate-schema")
-def validate_schema(url: str = Query(..., description="URL of the webpage to validate")):
-    credentials: HTTPAuthorizationCredentials = Depends(verify_token)
+def validate_schema(
+    url: str = Query(..., description="URL of the webpage to validate"),
+    credentials: HTTPAuthorizationCredentials = Depends(verify_token)  # Moved here!
+):
     headers = {
-    "Cache-Control": "no-cache",
-    "User-Agent": "SchemaValidator/1.0"
+        "Cache-Control": "no-cache",
+        "User-Agent": "SchemaValidator/1.0"
     }
 
     try:
@@ -552,21 +555,15 @@ def validate_schema(url: str = Query(..., description="URL of the webpage to val
         try:
             content = tag.string
             data = json.loads(content)
-
-            # Support @graph
             schemas = data.get("@graph") if isinstance(data, dict) and "@graph" in data else [data]
-
             if not isinstance(schemas, list):
                 schemas = [schemas]
-
             errors = validate_schema_data(schemas, line_number=index + 1)
-
-            if errors:  # Only include results with errors
+            if errors:
                 validation_results.append({
                     "line": index + 1,
                     "errors": errors
                 })
-
         except Exception as e:
             validation_results.append({
                 "line": index + 1,
