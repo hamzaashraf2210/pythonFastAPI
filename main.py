@@ -271,6 +271,18 @@ def validate_schema_item(schema):
         "type": schema.get("@type", "Unknown")
     }
 
+def generate_corrected_example(schema_type, field):
+    # Provide simple corrected example snippets per field & type
+    examples = {
+        ("Organization", "logo"): "https://example.com/logo.png",
+        ("Article", "datePublished"): "2023-01-01T00:00:00Z",
+        ("Product", "offers"): {
+            "@type": "Offer",
+            "price": "19.99",
+            "priceCurrency": "USD"
+        }
+    }
+    return examples.get((schema_type, field), "Valid value here")
 
 def validate_schema_data(schema, line_number=None):
     errors = []
@@ -285,6 +297,8 @@ def validate_schema_data(schema, line_number=None):
         errors.append({
             "message": "Missing @type in schema.",
             "line": line_number or "unknown",
+            "schema_snippet": schema,
+            "corrected_example": {"@type": "TypeName"}
         })
         return errors
 
@@ -298,7 +312,9 @@ def validate_schema_data(schema, line_number=None):
                     "type": schema_type,
                     "missing_field": field,
                     "message": f"Missing expected field '{field}' for type '{schema_type}'",
-                    "line": line_number or "unknown"
+                    "line": line_number or "unknown",
+                    "schema_snippet": schema,
+                    "corrected_example": {field: generate_corrected_example(schema_type, field)}
                 })
 
     if schema_type == "Article" and "datePublished" in schema:
@@ -306,8 +322,10 @@ def validate_schema_data(schema, line_number=None):
             errors.append({
                 "type": schema_type,
                 "field": "datePublished",
-                "message": "Field 'datePublished' should be an ISO 8601 date (e.g., 2023-01-01T00:00:00)",
-                "line": line_number or "unknown"
+                "message": "Field 'datePublished' should be an ISO 8601 date (e.g., 2023-01-01T00:00:00Z)",
+                "line": line_number or "unknown",
+                "schema_snippet": {"datePublished": schema.get("datePublished")},
+                "corrected_example": {"datePublished": generate_corrected_example(schema_type, "datePublished")}
             })
 
     if schema_type == "Product" and "offers" in schema:
@@ -319,16 +337,28 @@ def validate_schema_data(schema, line_number=None):
                     "type": schema_type,
                     "field": "offers",
                     "message": "Field 'offers' should contain an object with '@type': 'Offer'",
-                    "line": line_number or "unknown"
+                    "line": line_number or "unknown",
+                    "schema_snippet": {"offers": offers},
+                    "corrected_example": {"offers": generate_corrected_example(schema_type, "offers")}
                 })
 
     if schema_type == "Organization" and "logo" in schema:
-        if not validate_logo_field(schema["logo"]):
+        logo = schema["logo"]
+        if not validate_logo_field(logo):
+            corrected_logo = None
+            if isinstance(logo, dict) and logo.get("@type") == "ImageObject":
+                corrected_logo = logo.copy()
+                corrected_logo["url"] = generate_corrected_example(schema_type, "logo")
+            else:
+                corrected_logo = generate_corrected_example(schema_type, "logo")
+
             errors.append({
                 "type": schema_type,
                 "field": "logo",
-                "message": "Field 'logo' should be a valid URL or ImageObject with a valid url",
-                "line": line_number or "unknown"
+                "message": "Field 'logo' should be a valid URL or a valid ImageObject with a 'url'",
+                "line": line_number or "unknown",
+                "schema_snippet": {"logo": logo},
+                "corrected_example": {"logo": corrected_logo}
             })
 
     return errors
