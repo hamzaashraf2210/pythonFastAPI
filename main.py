@@ -672,3 +672,7 @@ async def upload_parquet(
             status_code=500,
             detail=f"Failed to read parquet file: {str(e)}\nTraceback:\n{tb}"
         )
+
+@app.get("/healthz")
+def health_check():
+    return JSONResponse(status_code=200, content={"status": "ok"})
