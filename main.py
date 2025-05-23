@@ -517,7 +517,8 @@ def validate_schema(url: str = Query(..., description="URL of the webpage to val
             })
 
     return JSONResponse(content={
-        "url": url,
+        "requested_url": url,
+        "fetched_url": response.url,
         "results": validation_results
     })
 
