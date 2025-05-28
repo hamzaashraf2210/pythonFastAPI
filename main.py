@@ -550,6 +550,7 @@ def validate_schema(
     soup = BeautifulSoup(html, "html.parser")
     scripts = soup.find_all("script", {"type": "application/ld+json"})
     validation_results = []
+    error_count = 0
 
     for index, tag in enumerate(scripts):
         try:
@@ -564,6 +565,7 @@ def validate_schema(
                     "line": index + 1,
                     "errors": errors
                 })
+                error_count += len(errors)
         except Exception as e:
             validation_results.append({
                 "line": index + 1,
@@ -573,7 +575,8 @@ def validate_schema(
     return JSONResponse(content={
         "requested_url": url,
         "fetched_url": response.url,
-        "results": validation_results
+        "results": validation_results,
+        "validation_count": error_count
     })
 
 @app.post("/run-script")
