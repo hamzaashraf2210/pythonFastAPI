@@ -294,7 +294,7 @@ def generate_corrected_example(schema_type, field):
             "priceCurrency": "USD"
         }
     }
-    return examples.get((schema_type, field), "Valid value here")
+    return examples.get((schema_type, field), "UPDATED LINE AND VALUE")
 
 def validate_schema_data(schema, line_number=None):
     errors = []
