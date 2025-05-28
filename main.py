@@ -445,11 +445,10 @@ def validate_schema(schema):
 def correct_schema(schema):
     """
     Tries to apply common-sense corrections to the given JSON-LD schema.
-    Returns the corrected schema.
+    Returns a string of the corrected schema with '// update' annotations.
     """
-    import copy
-
     corrected = copy.deepcopy(schema)
+    updated_fields = set()
 
     # Define required fields for common types
     required_fields = {
@@ -464,9 +463,6 @@ def correct_schema(schema):
     }
 
     def ensure_fields(obj):
-        """
-        Ensure required fields are present based on @type
-        """
         obj_type = obj.get("@type")
         if isinstance(obj_type, list):
             obj_type = obj_type[0]
@@ -477,23 +473,25 @@ def correct_schema(schema):
         for field in required:
             if field not in obj:
                 obj[field] = f"[MISSING_{field}]"
+                updated_fields.add(field)
         return obj
 
     def clean_nulls(obj):
-        """
-        Remove keys with null or empty values
-        """
-        return {k: v for k, v in obj.items() if v not in [None, ""]}
+        cleaned = {}
+        for k, v in obj.items():
+            if v not in [None, ""]:
+                cleaned[k] = v
+            elif v in [None, ""]:
+                updated_fields.add(k)
+        return cleaned
 
     def normalize(obj):
-        """
-        Normalize field formats or apply basic transformations
-        """
         if "@type" in obj and isinstance(obj["@type"], str):
             obj["@type"] = obj["@type"].strip()
 
         if "url" in obj and not isinstance(obj["url"], str):
             obj["url"] = str(obj["url"])
+            updated_fields.add("url")
 
         return obj
 
@@ -505,7 +503,17 @@ def correct_schema(schema):
     else:
         corrected = normalize(clean_nulls(ensure_fields(corrected)))
 
-    return corrected
+    # Annotate lines with // update
+    json_lines = json.dumps(corrected, indent=4).splitlines()
+    annotated = []
+
+    for line in json_lines:
+        if any(f'"{field}"' in line for field in updated_fields):
+            annotated.append(f"{line}  // update")
+        else:
+            annotated.append(line)
+
+    return "\n".join(annotated)
  
 
 @app.get("/true-validate")
@@ -575,8 +583,9 @@ def validate_schema(
     return JSONResponse(content={
         "requested_url": url,
         "fetched_url": response.url,
-        "results": validation_results,
-        "validation_count": error_count
+        "validation_count": error_count,
+        "results": validation_results
+        
     })
 
 @app.post("/run-script")
