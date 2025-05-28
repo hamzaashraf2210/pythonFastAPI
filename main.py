@@ -219,10 +219,7 @@ def fetch_and_update_schema(url):
     except requests.RequestException as e:
         raise HTTPException(status_code=400, detail=f"Error fetching URL: {e}")
 
-    # Parse the webpage content
     soup = BeautifulSoup(response.text, 'html.parser')
-
-    # Look for JSON-LD schema.org data
     schema_tags = soup.find_all('script', {'type': 'application/ld+json'})
 
     if not schema_tags:
@@ -243,22 +240,29 @@ def fetch_and_update_schema(url):
                     item = validate_common_schema(item, url, schema_type)
                     item = validate_nested_schemas(item, url, schema_type)
                     updated_schemas.append(item)
-        except json.JSONDecodeError as e:
+        except json.JSONDecodeError:
             continue
 
-    # Wrap in @graph if needed
-    if updated_schemas:
-        if len(updated_schemas) > 1:
-            final_schema = {
-                "@context": "https://schema.org",
-                "@graph": updated_schemas
-            }
-        else:
-            final_schema = updated_schemas[0]
-
-        return final_schema
-    else:
+    if not updated_schemas:
         raise HTTPException(status_code=404, detail="No valid schema found to update.")
+
+    # When there's more than one schema object, use @graph
+    if len(updated_schemas) > 1:
+        # Remove @context from each item
+        for item in updated_schemas:
+            item.pop("@context", None)
+        final_schema = {
+            "@context": "https://schema.org",
+            "@graph": updated_schemas
+        }
+    else:
+        # For a single schema item, ensure @context is present at top level
+        single_schema = updated_schemas[0]
+        if "@context" not in single_schema:
+            single_schema["@context"] = "https://schema.org"
+        final_schema = single_schema
+
+    return final_schema
 
 def is_valid_url(url):
     if not isinstance(url, str) or not url.strip():
