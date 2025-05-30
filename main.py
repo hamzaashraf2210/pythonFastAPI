@@ -2,10 +2,13 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, De
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
+from typing import List, Dict, Any
+import pyarrow.parquet as pq
 from bs4 import BeautifulSoup
 from jsonschema import Draft7Validator, RefResolver, ValidationError
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
+import uuid
 import json
 import os
 import requests
@@ -43,12 +46,23 @@ SCHEMA_OUTPUT_DIR = os.path.join(os.getcwd(), "validated_schemas")
 
 os.makedirs(SCHEMA_OUTPUT_DIR, exist_ok=True)
 
+class JSONDataSet(BaseModel):
+    data: List[Dict[str, Any]]
+
 class SchemaRequest(BaseModel):
     schema: dict 
 
 class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
+
+def json_to_parquet(json_data: List[Dict[str, Any]], output_file: str) -> None:
+    if not json_data:
+        raise ValueError("Input JSON data is empty")
+
+    df = pd.DataFrame(json_data)
+    table = pa.Table.from_pandas(df)
+    pq.write_table(table, output_file)
  
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
     if credentials.scheme != "Bearer" or credentials.credentials != API_TOKEN:
@@ -702,3 +716,21 @@ async def upload_parquet(
 @app.get("/healthz")
 def health_check():
     return JSONResponse(status_code=200, content={"status": "ok"})
+    
+
+@app.post("/save-parquet")
+async def save_parquet(dataset: JSONDataSet):
+    try:
+        # Generate a unique file name
+        filename = f"dataset_{uuid.uuid4().hex}.parquet"
+        output_path = os.path.join("parquet_files", filename)
+
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+        # Save to Parquet
+        json_to_parquet(dataset.data, output_path)
+
+        return {"message": "Parquet file saved successfully", "filename": filename}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
