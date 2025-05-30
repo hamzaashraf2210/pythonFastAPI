@@ -732,6 +732,11 @@ async def save_parquet(dataset: JSONDataSet):
         # Save to Parquet
         json_to_parquet(dataset.data, output_path)
 
-        return {"message": "Parquet file saved successfully", "filename": filename}
+        # Return file as a downloadable response
+        return FileResponse(
+            path=output_path,
+            filename=filename,
+            media_type='application/octet-stream'
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
