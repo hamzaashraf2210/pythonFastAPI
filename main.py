@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import pyarrow.parquet as pq
+import pyarrow as pa
 from bs4 import BeautifulSoup
 from jsonschema import Draft7Validator, RefResolver, ValidationError
 from urllib.parse import urlparse, urljoin
