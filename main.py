@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any
 import pyarrow.parquet as pq
@@ -56,6 +56,19 @@ class SchemaRequest(BaseModel):
 class ScriptRequest(BaseModel):
     code: str
     inputs: dict = {}
+
+
+class ErrorDetail(BaseModel):
+    type: str
+    missing_field: str
+    message: str
+    line: str
+    schema_snippet: Dict[str, Any]
+    corrected_example: Dict[str, Any]
+
+class Issue(BaseModel):
+    line: int
+    errors: List[ErrorDetail]
 
 def json_to_parquet(json_data: List[Dict[str, Any]], output_file: str) -> None:
     if not json_data:
@@ -533,6 +546,11 @@ def correct_schema(schema):
             annotated.append(line)
 
     return "\n".join(annotated)
+
+
+def json_pretty(obj: Dict[str, Any]) -> str:
+    import json
+    return json.dumps(obj, indent=4)
  
 
 @app.get("/true-validate")
@@ -740,3 +758,30 @@ async def save_parquet(dataset: JSONDataSet):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/beautify", response_class=PlainTextResponse)
+async def beautify_json(issues: List[Issue]):
+    output_lines = []
+
+    for entry in issues:
+        line_num = entry.line
+        output_lines.append(f"Line Number: {line_num}")
+        output_lines.append("=" * 80)
+
+        for i, error in enumerate(entry.errors, 1):
+            output_lines.append(f"Issue {i}:")
+            output_lines.append(f"  Type: {error.type}")
+            output_lines.append(f"  Missing Field: {error.missing_field}")
+            output_lines.append(f"  Message: {error.message}")
+            output_lines.append(f"  Reported Line: {error.line}\n")
+
+            output_lines.append("  Schema Snippet:")
+            schema_str = json_pretty(error.schema_snippet)
+            output_lines.append(schema_str + "\n")
+
+            output_lines.append("  Corrected Example:")
+            corrected_str = json_pretty(error.corrected_example)
+            output_lines.append(corrected_str)
+            output_lines.append("-" * 80)
+
+    return "\n".join(output_lines)
