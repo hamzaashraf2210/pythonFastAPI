@@ -678,11 +678,15 @@ async def upload_parquet(
         contents = await file.read()
         buffer = io.BytesIO(contents)
 
+        # Read the file into DataFrame and ParquetFile
         df = pd.read_parquet(buffer)
+        buffer.seek(0)  # Reset buffer to read again for metadata
+        parquet_file = pq.ParquetFile(buffer)
+
+        # Extract data and clean it
         data = df.to_dict(orient="records")
 
         def clean_nan(obj):
-            import math
             if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
                 return None
             elif isinstance(obj, dict):
@@ -694,8 +698,9 @@ async def upload_parquet(
 
         cleaned_data = clean_nan(data)
 
+        # Pagination
         total_rows = len(cleaned_data)
-        total_pages = (total_rows + page_size - 1) // page_size  # ceil division
+        total_pages = (total_rows + page_size - 1) // page_size
 
         if page > total_pages and total_pages != 0:
             raise HTTPException(status_code=400, detail=f"Page {page} out of range. Max page is {total_pages}.")
@@ -704,14 +709,20 @@ async def upload_parquet(
         end_idx = start_idx + page_size
         page_data = cleaned_data[start_idx:end_idx]
 
-        # Build next page URL if there is a next page
-        next_page_url = None
-        if page < total_pages:
-            url = request.url.include_query_params(page=page + 1, page_size=page_size)
-            next_page_url = str(url)
+        # Metadata
+        metadata = {
+            "num_rows": parquet_file.metadata.num_rows,
+            "num_columns": parquet_file.metadata.num_columns,
+            "row_group_count": parquet_file.num_row_groups,
+            "created_by": parquet_file.metadata.created_by,
+            "column_names": df.columns.tolist(),
+            "schema": str(parquet_file.schema)
+        }
 
+        # Build response
         response = {
             "filename": file.filename,
+            "metadata": metadata,
             "total_rows": total_rows,
             "total_pages": total_pages,
             "page": page,
@@ -720,8 +731,10 @@ async def upload_parquet(
             "data": page_data,
         }
 
-        if next_page_url:
-            response["next_page_url"] = next_page_url
+        # Add next page URL if applicable
+        if page < total_pages:
+            url = request.url.include_query_params(page=page + 1, page_size=page_size)
+            response["next_page_url"] = str(url)
 
         return response
 
