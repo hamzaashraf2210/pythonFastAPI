@@ -677,6 +677,7 @@ async def upload_parquet(
             raise HTTPException(status_code=400, detail="Only .parquet files are supported.")
 
         contents = await file.read()
+        file_size_bytes = len(contents)
         buffer = io.BytesIO(contents)
 
         # Read the file into DataFrame and ParquetFile
@@ -717,7 +718,8 @@ async def upload_parquet(
             "row_group_count": parquet_file.num_row_groups,
             "created_by": parquet_file.metadata.created_by,
             "column_names": df.columns.tolist(),
-            "schema": str(parquet_file.schema)
+            "schema": str(parquet_file.schema),
+            "file_size_bytes": file_size_bytes
         }
 
         # Build response
