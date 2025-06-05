@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Depends, status
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Request, Depends, status, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from jsonschema import Draft7Validator, RefResolver, ValidationError
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
+import duckdb
 import math
 import uuid
 import json
@@ -674,7 +675,8 @@ async def upload_parquet(
     request: Request,
     file: UploadFile = File(...),
     page: int = Query(1, ge=1),
-    page_size: int = Query(1000, ge=1, le=1000)
+    page_size: int = Query(1000, ge=1, le=1000),
+    sql_query: str = Form(None)  #
 ):
     try:
         if not file.filename.endswith(".parquet"):
@@ -684,38 +686,9 @@ async def upload_parquet(
         file_size_bytes = len(contents)
         buffer = io.BytesIO(contents)
 
-        # Read the file into DataFrame and ParquetFile
         df = pd.read_parquet(buffer)
-        buffer.seek(0)  # Reset buffer to read again for metadata
+        buffer.seek(0)
         parquet_file = pq.ParquetFile(buffer)
-
-        # Extract data and clean it
-        data = df.to_dict(orient="records")
-
-        def clean_nan(obj):
-            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
-                return None
-            elif isinstance(obj, dict):
-                return {k: clean_nan(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [clean_nan(i) for i in obj]
-            else:
-                return obj
-
-        cleaned_data = clean_nan(data)
-
-        # Pagination
-        total_rows = len(cleaned_data)
-        total_pages = (total_rows + page_size - 1) // page_size
-
-        if page > total_pages and total_pages != 0:
-            raise HTTPException(status_code=400, detail=f"Page {page} out of range. Max page is {total_pages}.")
-
-        start_idx = (page - 1) * page_size
-        end_idx = start_idx + page_size
-        page_data = cleaned_data[start_idx:end_idx]
-        
-        null_counts = get_null_counts(df)
 
         # Metadata
         metadata = {
@@ -724,24 +697,56 @@ async def upload_parquet(
             "row_group_count": parquet_file.num_row_groups,
             "created_by": parquet_file.metadata.created_by,
             "column_names": df.columns.tolist(),
+            "column_types": {col: str(dtype) for col, dtype in df.dtypes.items()},
             "schema": str(parquet_file.schema),
             "file_size_bytes": file_size_bytes,
-            "null_counts": null_counts
+            "file_size_kb": round(file_size_bytes / 1024, 2),
+            "null_counts": df.isnull().sum().to_dict()
         }
 
-        # Build response
+        # SQL query execution
+        if sql_query:
+            try:
+                queried_df = duckdb.query_df(df, "df", sql_query).to_df()
+                data = queried_df.to_dict(orient="records")
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Invalid SQL query: {e}")
+        else:
+            # Default pagination on full DataFrame
+            data = df.to_dict(orient="records")
+
+        # Clean NaNs
+        def clean_nan(obj):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            elif isinstance(obj, dict):
+                return {k: clean_nan(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_nan(i) for i in obj]
+            return obj
+
+        cleaned_data = clean_nan(data)
+
+        total_rows = len(cleaned_data)
+        total_pages = (total_rows + page_size - 1) // page_size
+        if page > total_pages and total_pages != 0:
+            raise HTTPException(status_code=400, detail=f"Page {page} out of range. Max page is {total_pages}.")
+
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_data = cleaned_data[start_idx:end_idx]
+
         response = {
             "filename": file.filename,
-            "metadata": metadata,
             "total_rows": total_rows,
             "total_pages": total_pages,
             "page": page,
             "page_size": page_size,
             "rows_returned": len(page_data),
-            "data": page_data,
+            "metadata": metadata,
+            "data": page_data
         }
 
-        # Add next page URL if applicable
         if page < total_pages:
             url = request.url.include_query_params(page=page + 1, page_size=page_size)
             response["next_page_url"] = str(url)
