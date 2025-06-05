@@ -552,6 +552,10 @@ def correct_schema(schema):
 def json_pretty(obj: Dict[str, Any]) -> str:
     import json
     return json.dumps(obj, indent=4)
+
+
+def get_null_counts(df: pd.DataFrame) -> dict:
+    return df.isnull().sum().to_dict()
  
 
 @app.get("/true-validate")
@@ -710,6 +714,8 @@ async def upload_parquet(
         start_idx = (page - 1) * page_size
         end_idx = start_idx + page_size
         page_data = cleaned_data[start_idx:end_idx]
+        
+        null_counts = get_null_counts(df)
 
         # Metadata
         metadata = {
@@ -719,7 +725,8 @@ async def upload_parquet(
             "created_by": parquet_file.metadata.created_by,
             "column_names": df.columns.tolist(),
             "schema": str(parquet_file.schema),
-            "file_size_bytes": file_size_bytes
+            "file_size_bytes": file_size_bytes,
+            "null_counts": null_counts
         }
 
         # Build response
