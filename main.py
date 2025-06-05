@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from jsonschema import Draft7Validator, RefResolver, ValidationError
 from urllib.parse import urlparse, urljoin
 from datetime import datetime
+import math
 import uuid
 import json
 import os
